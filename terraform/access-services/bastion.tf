@@ -1,9 +1,5 @@
-locals {
-  bastion_enabled = true
-}
-
 resource "azurerm_public_ip" "bastion" {
-  count = local.bastion_enabled ? 1 : 0
+  count = var.bastion_enabled ? 1 : 0
 
   name                = "pip-bas-snb-pve"
   resource_group_name = data.azurerm_resource_group.lab.name
@@ -18,7 +14,7 @@ resource "azurerm_public_ip" "bastion" {
 }
 
 resource "azurerm_bastion_host" "lab" {
-  count = local.bastion_enabled ? 1 : 0
+  count = var.bastion_enabled ? 1 : 0
 
   name                = "vnet_snb_pve_bastion"
   resource_group_name = data.azurerm_resource_group.lab.name
@@ -44,3 +40,4 @@ resource "azurerm_bastion_host" "lab" {
     Owner    = "Christoph Zink"
   }
 }
+

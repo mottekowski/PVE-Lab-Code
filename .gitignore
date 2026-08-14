@@ -1,0 +1,50 @@
+# -----------------------------------------------------------------------------
+# Terraform
+# -----------------------------------------------------------------------------
+
+# Local Terraform working directory
+.terraform/
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+
+# Terraform plan files
+*.tfplan
+tfplan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Sensitive/local variable files
+*.tfvars
+*.tfvars.json
+
+# Local override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform CLI configuration
+.terraformrc
+terraform.rc
+
+
+# -----------------------------------------------------------------------------
+# Credentials / keys
+# -----------------------------------------------------------------------------
+
+*.pem
+*.key
+*.pfx
+id_rsa
+id_ed25519
+
+
+# -----------------------------------------------------------------------------
+# Local tooling
+# -----------------------------------------------------------------------------
+
+.graphify/

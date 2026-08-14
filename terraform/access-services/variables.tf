@@ -10,8 +10,14 @@ variable "nat_associations_enabled" {
   default     = false
 }
 
-variable "bastion_enabled" {
-  description = "Controls whether Azure Bastion and its Public IP are deployed."
+variable "bastion_public_ip_enabled" {
+  description = "Controls whether the Azure Bastion Public IP is deployed."
+  type        = bool
+  default     = true
+}
+
+variable "bastion_host_enabled" {
+  description = "Controls whether the Azure Bastion Host is deployed."
   type        = bool
   default     = true
 }

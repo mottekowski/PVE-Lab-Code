@@ -19,5 +19,5 @@ variable "bastion_public_ip_enabled" {
 variable "bastion_host_enabled" {
   description = "Controls whether the Azure Bastion Host is deployed."
   type        = bool
-  default     = true
+  default     = false
 }

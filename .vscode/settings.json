@@ -1,2 +1,6 @@
 {
+    "sonarlint.connectedMode.project": {
+        "connectionId": "mottekowski",
+        "projectKey": "mottekowski_PVE-Lab-Code"
+    }
 }

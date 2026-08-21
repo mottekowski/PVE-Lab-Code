@@ -1,0 +1,7 @@
+Package: SNB AP1 PVE/Ceph Read-only Scripts CSV
+Version: V0.5
+Date: 2026-08-20
+Mode: additive extension of V0.4.2 base
+Primary entry point: 00-ap1-v05-collect.sh
+Template target: 20260306_Template_AP1_DataCapture_StromnetzBerlin_OT_ProxMox_Ceph_DC1-DC2.xlsx
+New collectors: 13-pve-permissions.sh, 14-pve-ha-core.sh, 15-pve-ha-node.sh

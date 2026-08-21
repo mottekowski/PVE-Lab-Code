@@ -10,12 +10,10 @@ param(
         "winadmin01"
     ),
 
-    [int]$ExpectedDiskCount = 9,
+    [int]$ExpectedDiskCount = 7,
 
-    [int]$ExpectedTotalGB = 640,
+    [int]$ExpectedTotalGB = 320,
 
-    [ValidateNotNullOrEmpty()]
-    [ValidatePattern("^\d{8}-\d{6}$")]
     [string]$Checkpoint = (Get-Date -Format "yyyyMMdd-HHmmss"),
 
     [switch]$Apply
@@ -264,7 +262,6 @@ $expectedLayout = @{
     pve01      = 2
     pve02      = 2
     pve03      = 2
-    pbs01      = 2
     winadmin01 = 1
 }
 

@@ -10,6 +10,7 @@
       - pve01
       - pve02
       - pve03
+      - pbs01
       - winadmin01
 
     Sicherheitsverhalten:
@@ -40,6 +41,7 @@ $VmNames = @(
     "pve01",
     "pve02",
     "pve03",
+    "pbs01",
     "winadmin01"
 )
 

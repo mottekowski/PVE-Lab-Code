@@ -8,6 +8,7 @@
       2. pve01
       3. pve02
       4. pve03
+      5. pbs01
 
     Before the next VM is started, the script verifies that the current VM
     has reached both of the following Azure instance states:
@@ -51,7 +52,8 @@ $VmNames = @(
     "winadmin01",
     "pve01",
     "pve02",
-    "pve03"
+    "pve03",
+    "pbs01"
 )
 
 function Write-Section {

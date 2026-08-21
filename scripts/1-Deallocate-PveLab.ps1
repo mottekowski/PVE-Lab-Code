@@ -36,6 +36,7 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $VmNames = @(
     "pve01",

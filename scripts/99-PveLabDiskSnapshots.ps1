@@ -367,7 +367,7 @@ if (-not $Apply) {
     Write-Host "PLAN completed successfully."
     Write-Host "No Azure resources were created or changed."
     Write-Host ""
-    Write-Host "For the cold snapshot APPLY run, all four target VMs must first be deallocated."
+    Write-Host "For the cold snapshot APPLY run, all target VMs must first be deallocated."
     Write-Host "After the controlled PVE/Ceph shutdown, use the SAME checkpoint for APPLY:"
     Write-Host ".\scripts\99-PveLabDiskSnapshots.ps1 -Checkpoint '$Checkpoint' -Apply"
     exit 0
@@ -376,7 +376,7 @@ if (-not $Apply) {
 # -----------------------------------------------------------------------------
 # 06 - APPLY safety gate: cold-state required
 # -----------------------------------------------------------------------------
-Write-Section "05 - APPLY SAFETY GATE"
+Write-Section "06 - APPLY SAFETY GATE"
 
 $notDeallocated = @(
     $vmStates |
@@ -395,9 +395,7 @@ Write-Host "Snapshot creation is permitted."
 # -----------------------------------------------------------------------------
 # 07 - Create incremental snapshots
 # -----------------------------------------------------------------------------
-Write-Section "06 - CREATE INCREMENTAL SNAPSHOTS"
-
-$created = [System.Collections.Generic.List[object]]::new()
+Write-Section "07 - CREATE INCREMENTAL SNAPSHOTS"
 
 foreach ($item in $plan) {
     if ($item.Action -eq "SKIP-EXISTS") {
@@ -435,22 +433,12 @@ foreach ($item in $plan) {
     if ($snapshot.creationData.sourceResourceId -ne $item.DiskId) {
         throw "Snapshot '$($item.SnapshotName)' source verification failed."
     }
-
-    $created.Add([PSCustomObject]@{
-        VM                = $item.VM
-        Role              = $item.Role
-        SnapshotName      = $snapshot.name
-        ProvisioningState = $snapshot.provisioningState
-        Incremental       = $snapshot.incremental
-        Location          = $snapshot.location
-        SourceDisk        = $item.DiskName
-    })
 }
 
 # -----------------------------------------------------------------------------
 # 08 - Final verification
 # -----------------------------------------------------------------------------
-Write-Section "07 - FINAL SNAPSHOT VERIFICATION - READ ONLY"
+Write-Section "08 - FINAL SNAPSHOT VERIFICATION - READ ONLY"
 
 $finalSnapshots = @(Invoke-AzJson -AzArguments @(
     "snapshot", "list",

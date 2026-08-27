@@ -1,5 +1,16 @@
 # Changelog
 
+## V0.5.1 - 2026-08-25
+
+- Fixed physical NIC discovery for `ethtool -S` statistics in `11-ceph-perf.sh`.
+- Replaced unresolved interface placeholder in collector source fields with dynamically detected physical interfaces.
+- Removed `head -n 50` limitation from structured `ethtool -S` processing.
+- Added explicit interface context to NIC statistics in `Node/Scope`, `Parameter` and `Befehl/Quelle`.
+- Added status handling for `NO_PHYSICAL_INTERFACES_DETECTED`, `INTERFACE_NOT_FOUND`, `ETHTOOL_STATS_NOT_SUPPORTED` and `COLLECTION_FAILED`.
+- Prevented failed or unavailable NIC statistics from being represented as numeric `0`.
+- Preserved read-only behavior and existing CSV/XLSX compatibility.
+- No fachliche Scope-Erweiterung gegenueber V0.5.
+
 ## V0.5 - 2026-08-20
 
 - Additiv: neuer Entry Point `00-ap1-v05-collect.sh`; bestehende V0.4.2-Scripts bleiben byte-identisch.

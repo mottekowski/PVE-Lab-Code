@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# PBS-spezifische Helper fuer AP3 V0.7.2.
+# Erfassung erfolgt ausschliesslich lokal auf PBS. Keine PVE-SSH/API-Funktionen enthalten.
+set -u
+
+LIB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${LIB_DIR}/ap3-csv.sh"
+source "${LIB_DIR}/ap3-table.sh"
+
+AP3_PBS_SCOPE_FILE="${AP3_PBS_SCOPE_FILE:-}"
+AP3_PBS_DATASTORE_CFG="${AP3_PBS_DATASTORE_CFG:-/etc/proxmox-backup/datastore.cfg}"
+
+declare -ag AP3_SCOPE_DATASTORES=()
+declare -Ag AP3_SCOPE_NAMESPACES=()
+declare -ag AP3_SCOPE_SERVERS=()
+declare -ag AP3_SCOPE_CLUSTERS=()
+
+ap3_pbs_capture() {
+  local cmd="$1" out rc
+  out="$(bash -lc "$cmd" 2>&1)"; rc=$?
+  if (( rc == 0 )); then printf '%s' "$out"; else printf 'ERROR(rc=%s): %s' "$rc" "$out"; fi
+  return "$rc"
+}
+
+ap3_scope_load() {
+  local file="${1:-$AP3_PBS_SCOPE_FILE}"
+  [[ -r "$file" ]] || { printf 'ERROR: Scope-Datei nicht lesbar: %s\n' "$file" >&2; return 2; }
+  AP3_SCOPE_DATASTORES=(); AP3_SCOPE_NAMESPACES=(); AP3_SCOPE_SERVERS=(); AP3_SCOPE_CLUSTERS=()
+  local line cluster sid server ds ns cleaned found
+  local lineno=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    lineno=$((lineno+1))
+    [[ $lineno -eq 1 ]] && continue
+    [[ -n "$line" ]] || continue
+    cleaned="${line//\"/}"
+    IFS=';' read -r cluster sid server ds ns <<< "$cleaned"
+    cluster="$(printf '%s' "${cluster-}" | xargs)"
+    server="$(printf '%s' "${server-}" | xargs)"
+    ds="$(printf '%s' "${ds-}" | xargs)"
+    ns="$(printf '%s' "${ns-}" | xargs)"
+    [[ -n "$ds" ]] || continue
+    if [[ ! "$ds" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      printf 'ERROR: Unsicherer Datastore-Wert in Scope-Zeile %d: %s\n' "$lineno" "$ds" >&2
+      return 3
+    fi
+    if [[ -n "$ns" && ! "$ns" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+      printf 'ERROR: Unsicherer Namespace-Wert in Scope-Zeile %d: %s\n' "$lineno" "$ns" >&2
+      return 3
+    fi
+    found=0
+    for d in "${AP3_SCOPE_DATASTORES[@]:-}"; do [[ "$d" == "$ds" ]] && found=1; done
+    (( found == 0 )) && AP3_SCOPE_DATASTORES+=("$ds")
+    if [[ -n "$ns" ]]; then
+      if [[ -n "${AP3_SCOPE_NAMESPACES[$ds]:-}" ]]; then
+        case ",${AP3_SCOPE_NAMESPACES[$ds]}," in *",$ns,"*) ;; *) AP3_SCOPE_NAMESPACES[$ds]+=",$ns" ;; esac
+      else
+        AP3_SCOPE_NAMESPACES[$ds]="$ns"
+      fi
+    fi
+    [[ -n "$server" ]] && AP3_SCOPE_SERVERS+=("$server")
+    [[ -n "$cluster" ]] && AP3_SCOPE_CLUSTERS+=("$cluster")
+  done < "$file"
+  (( ${#AP3_SCOPE_DATASTORES[@]} > 0 )) || { printf 'ERROR: Scope-Datei enthaelt keinen PBS-Datastore.\n' >&2; return 4; }
+}
+
+ap3_scope_has_datastore() {
+  local needle="$1" d
+  for d in "${AP3_SCOPE_DATASTORES[@]}"; do [[ "$d" == "$needle" ]] && return 0; done
+  return 1
+}
+
+ap3_scope_namespace_required() {
+  [[ -n "${AP3_SCOPE_NAMESPACES[$1]:-}" ]]
+}
+
+ap3_scope_namespace_matches() {
+  local ds="$1" ns="$2" list="${AP3_SCOPE_NAMESPACES[$1]:-}"
+  [[ -z "$list" ]] && return 0
+  [[ -z "$ns" ]] && return 0  # datastore-wide Job wirkt auch auf scoped Namespace
+  case ",$list," in *",$ns,"*) return 0 ;; *) return 1 ;; esac
+}
+
+ap3_datastore_path() {
+  local ds="$1"
+  awk -v want="$ds" '
+    /^[[:space:]]*datastore:[[:space:]]+/ {inside=( $2==want ); next}
+    inside && /^[^[:space:]]/ {inside=0}
+    inside && $1=="path" {$1=""; sub(/^[[:space:]]+/,"",$0); print; exit}
+  ' "$AP3_PBS_DATASTORE_CFG" 2>/dev/null
+}
+
+ap3_record_in_scope() {
+  # Erwartet eine normalisierte Zusammenfassung "key=value; key=value".
+  # Matcht nur explizite lokale Datastore-Felder. Keine heuristische VMID-Korrelation.
+  local summary="$1" ds ns="" padded keyval
+  padded="; ${summary}; "
+  for ds in "${AP3_SCOPE_DATASTORES[@]}"; do
+    case "$padded" in
+      *"; store=${ds}; "*|*"; Store=${ds}; "*|*"; datastore=${ds}; "*|*"; Datastore=${ds}; "*|*"; target-store=${ds}; "*|*"; target store=${ds}; "*)
+        ns="$(printf '%s' "$summary" | tr ';' '\n' | sed -nE 's/^[[:space:]]*[Nn]s=//p' | head -n1 | xargs)"
+        ap3_scope_namespace_matches "$ds" "$ns" && return 0
+        return 1
+        ;;
+    esac
+  done
+  return 1
+}
+
+ap3_decode_upid_target() {
+  local s="${1-}"
+  s="${s//\\x2d/-}"; s="${s//\\x3a/:}"; s="${s//\\x5f/_}"; s="${s//\\x2e/.}"; s="${s//\\x2f//}"
+  printf '%s' "$s"
+}
+
+ap3_task_target_in_scope() {
+  local target="$1" ds
+  for ds in "${AP3_SCOPE_DATASTORES[@]}"; do
+    case "$target" in
+      "$ds"|"$ds":*)
+        # Bei explizitem Namespace ist eine UPID ohne belastbare Namespace-Information nicht eindeutig genug.
+        ap3_scope_namespace_required "$ds" && return 2
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Filtert eine PBS Task-Tabelle auf den ueber AP3_PBS_Scope.csv definierten Datastore-Scope.
+# Ausgabe: start<US>end<US>type<US>target<US>status
+# Return 0: mindestens ein sicher zuordenbarer Task; 2: Namespace-Scope verhindert eindeutige UPID-Zuordnung; 1: kein Task im Scope.
+ap3_scoped_task_records() {
+  local raw="$1"
+  local -a rows headers cells parts
+  local start_idx=-1 end_idx=-1 upid_idx=-1 status_idx=-1
+  local i j start end upid status type target any=0 ambiguous=0 decision
+  mapfile -t rows < <(printf '%s\n' "$raw" | ap3_box_table_usv_rows)
+  (( ${#rows[@]} >= 2 )) || return 1
+  IFS="$AP3_TABLE_SEP" read -r -a headers <<< "${rows[0]}"
+  for ((j=0; j<${#headers[@]}; j++)); do
+    case "${headers[$j],,}" in starttime) start_idx=$j;; endtime) end_idx=$j;; upid) upid_idx=$j;; status) status_idx=$j;; esac
+  done
+  (( upid_idx >= 0 )) || return 1
+  for ((i=1; i<${#rows[@]}; i++)); do
+    IFS="$AP3_TABLE_SEP" read -r -a cells <<< "${rows[$i]}"
+    start=""; end=""; status=""; upid="${cells[$upid_idx]-}"
+    (( start_idx >= 0 )) && start="${cells[$start_idx]-}"
+    (( end_idx >= 0 )) && end="${cells[$end_idx]-}"
+    (( status_idx >= 0 )) && status="${cells[$status_idx]-}"
+    type="UNKNOWN"; target=""
+    if [[ "$upid" == UPID:* ]]; then
+      IFS=':' read -r -a parts <<< "$upid"
+      type="${parts[6]-UNKNOWN}"
+      target="$(ap3_decode_upid_target "${parts[7]-}")"
+    fi
+    ap3_task_target_in_scope "$target"; decision=$?
+    case "$decision" in
+      0) printf '%s%s%s%s%s%s%s%s%s\n' "$start" "$AP3_TABLE_SEP" "$end" "$AP3_TABLE_SEP" "$type" "$AP3_TABLE_SEP" "$target" "$AP3_TABLE_SEP" "$status"; any=1;;
+      2) ambiguous=1;;
+    esac
+  done
+  (( any == 1 )) && return 0
+  (( ambiguous == 1 )) && return 2
+  return 1
+}

@@ -63,24 +63,52 @@ if run_ready "$HOST_SHORT" "$CATEGORY" "Network (Node) - Link Counter" "ip -s li
     ' "$RUN_STDOUT" | while IFS=$'\t' read -r iface field value; do emit_record "$HOST_SHORT / $iface" "$CATEGORY" "Network Counter / $field" "$value" "ip -s link" "$RUN_TS" "Read-only; Evidence=${RUN_EVIDENCE_REL}"; done
 fi
 
-IFACE="${1:-${IFACE:-}}"
-if [[ -n "$IFACE" ]]; then
-    IFACES=("$IFACE")
-else
-    # Interface discovery must run on the target node as well. This keeps the
-    # coordinator model correct when the collector is invoked through SSH.
-    run_capture_shell "interface-discovery" "enumerate physical/bond interfaces via /sys/class/net" 'for p in /sys/class/net/*; do [[ -d "$p" ]] || continue; i="${p##*/}"; [[ "$i" == "lo" ]] && continue; [[ -e "$p/device" || -d "$p/bonding" ]] && printf "%s\n" "$i"; done | sort -u'
-    if [[ $RUN_RC -eq 0 ]]; then
-        mapfile -t IFACES < "$RUN_STDOUT"
-    else
-        IFACES=()
-        run_ready "$HOST_SHORT" "$CATEGORY" "Network (Node) - Interface Discovery" "enumerate physical/bond interfaces via /sys/class/net" || true
+IFACES=()
+# Interface discovery must run on the target node as well. This keeps the
+# coordinator model correct when the collector is invoked through SSH.
+run_capture_shell "interface-discovery" "enumerate physical interfaces via /sys/class/net device backing" 'for p in /sys/class/net/*; do
+    [[ -d "$p" ]] || continue
+    [[ -e "$p/device" ]] || continue
+    i="${p##*/}"
+    case "$i" in
+        lo|vmbr*|bond*|tap*|veth*|fwbr*|fwln*|fwpr*) continue ;;
+    esac
+    printf "%s\n" "$i"
+done | sort -u'
+if [[ $RUN_RC -eq 0 ]]; then
+    mapfile -t IFACES < "$RUN_STDOUT"
+    if [[ ${#IFACES[@]} -eq 0 ]]; then
+        emit_status "$HOST_SHORT" "$CATEGORY" "Network (Node) - Physical Interface Discovery" "NO_PHYSICAL_INTERFACES_DETECTED" "enumerate physical interfaces via /sys/class/net device backing" "$RUN_TS" "No /sys/class/net interface with physical device backing matched the collector filter; Evidence=${RUN_EVIDENCE_REL}"
     fi
+else
+    emit_status "$HOST_SHORT" "$CATEGORY" "Network (Node) - Physical Interface Discovery" "COLLECTION_FAILED" "enumerate physical interfaces via /sys/class/net device backing" "$RUN_TS" "ExitCode=${RUN_RC}; Evidence=${RUN_EVIDENCE_REL}"
 fi
 for iface in "${IFACES[@]}"; do
-    run_capture "ethtool-$(printf '%s' "$iface" | tr -c 'A-Za-z0-9._-' '_')" "ethtool -S <IFACE>" ethtool -S "$iface"
-    if [[ $RUN_RC -ne 0 ]]; then run_ready "$HOST_SHORT / $iface" "$CATEGORY" "Network (Node) - ethtool" "ethtool -S <IFACE>" || true; continue; fi
-    awk -F: 'NF>=2 {k=$1; v=$2; lk=tolower(k); if(lk ~ /(err|drop|crc|disc)/){gsub(/^[ \t]+|[ \t]+$/,"",k);gsub(/^[ \t]+|[ \t]+$/,"",v);if(k!=""&&v!="")print k "\t" v}}' "$RUN_STDOUT" | head -n 50 | while IFS=$'\t' read -r key value; do emit_record "$HOST_SHORT / $iface" "$CATEGORY" "ethtool / $key" "$value" "ethtool -S <IFACE> | head -n 50" "$RUN_TS" "Read-only; Evidence=${RUN_EVIDENCE_REL}"; done
+    source_cmd="ethtool -S $iface"
+    run_capture "ethtool-$(printf '%s' "$iface" | tr -c 'A-Za-z0-9._-' '_')" "$source_cmd" ethtool -S "$iface"
+    if [[ $RUN_RC -ne 0 ]]; then
+        err="$(head -n 5 "$RUN_STDERR" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g')"
+        status="COLLECTION_FAILED"
+        if printf '%s' "$err" | grep -Eiq 'no such device|cannot get device|device not found|not found'; then
+            status="INTERFACE_NOT_FOUND"
+        elif printf '%s' "$err" | grep -Eiq 'not supported|no stats available|operation not supported|cannot get stats'; then
+            status="ETHTOOL_STATS_NOT_SUPPORTED"
+        fi
+        emit_status "$HOST_SHORT / $iface" "$CATEGORY" "Physical NIC Stats / $iface" "$status" "$source_cmd" "$RUN_TS" "ExitCode=${RUN_RC}; ${err:-ethtool statistics collection failed}; Evidence=${RUN_EVIDENCE_REL}"
+        continue
+    fi
+    awk -F: '
+      NF>=2 {
+        k=$1; v=$2; lk=tolower(k)
+        if (lk ~ /(err|error|errors|drop|drops|discard|crc|fault|miss|timeout|overrun|carrier)/) {
+          gsub(/^[ \t]+|[ \t]+$/, "", k)
+          gsub(/^[ \t]+|[ \t]+$/, "", v)
+          if (k!="" && v!="") print k "\t" v
+        }
+      }
+    ' "$RUN_STDOUT" | while IFS=$'\t' read -r key value; do
+        emit_record "$HOST_SHORT / $iface" "$CATEGORY" "Physical NIC Stats / $iface / $key" "$value" "$source_cmd" "$RUN_TS" "Read-only; Evidence=${RUN_EVIDENCE_REL}"
+    done
 done
 # rados bench ... write --no-cleanup is deliberately excluded because it writes data.
 finish_collector

@@ -1,0 +1,4 @@
+# Ein PVE-Host pro Zeile. Der lokale Collector wird automatisch als erstes Target ergaenzt.
+# Beispiel:
+pve02
+pve03

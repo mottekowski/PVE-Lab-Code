@@ -1,0 +1,2 @@
+"PVE-Cluster";"PVE-Storage-ID";"PBS-Server";"PBS-Datastore";"PBS-Namespace"
+"pve-cluster01";"pbs-prod";"pbs01.example.local";"pbs-prod";""
